@@ -4,103 +4,135 @@ import pandas as pd
 import numpy as np
 import joblib
 import os
+import shap
+import matplotlib.pyplot as plt
 
-# Fungsi untuk memuat model dan scaler
-# Menggunakan cache untuk performa lebih baik, jadi model tidak di-load ulang setiap ada interaksi
+# Fungsi untuk menampilkan plot SHAP di Streamlit
+def st_shap(plot, height=None):
+    """Menampilkan plot SHAP di dalam aplikasi Streamlit."""
+    shap_html = f"<head>{shap.getjs()}</head><body>{plot.html()}</body>"
+    st.components.v1.html(shap_html, height=height)
+
+# Fungsi untuk memuat aset-aset yang diperlukan
 @st.cache_resource
-def load_model_and_scaler():
-    """Memuat model dan scaler yang sudah dilatih."""
+def load_assets():
+    """Memuat model, scaler, SHAP explainer, dan metrik performa."""
     model_path = os.path.join("outputs", "best_model.pkl")
     scaler_path = os.path.join("outputs", "scaler.pkl")
+    results_path = os.path.join("outputs", "summary_results.csv")
 
-    if not os.path.exists(model_path) or not os.path.exists(scaler_path):
+    if not all(os.path.exists(p) for p in [model_path, scaler_path, results_path]):
         st.error(
-            "File model `best_model.pkl` atau `scaler.pkl` tidak ditemukan. "
+            "Satu atau lebih file aset (`best_model.pkl`, `scaler.pkl`, `summary_results.csv`) tidak ditemukan. "
             "Harap jalankan `main.py` terlebih dahulu untuk menghasilkan file-file ini."
         )
-        return None, None
+        return None, None, None, None
 
     model = joblib.load(model_path)
     scaler = joblib.load(scaler_path)
-    return model, scaler
+    explainer = shap.TreeExplainer(model)
+    
+    # Memuat hasil dan mencari metrik model terbaik
+    results_df = pd.read_csv(results_path)
+    best_model_metrics = results_df.loc[results_df['f1'].idxmax()]
+    
+    return model, scaler, explainer, best_model_metrics
 
-# Memuat model dan scaler
-model, scaler = load_model_and_scaler()
+# Memuat aset
+model, scaler, explainer, metrics = load_assets()
 
-# Judul dan deskripsi aplikasi
-st.set_page_config(page_title="Prediksi Diabetes", layout="centered")
-st.title("Aplikasi Web Prediksi Diabetes")
+# Konfigurasi halaman dan judul
+st.set_page_config(page_title="Prediksi Risiko Diabetes", layout="wide")
+st.title("Aplikasi Prediksi Risiko Diabetes")
 st.write(
-    "Aplikasi ini menggunakan model Machine Learning untuk memprediksi risiko diabetes "
-    "berdasarkan data medis pasien. Harap masukkan data pasien di bawah ini."
+    "Aplikasi ini menggunakan model Machine Learning untuk memprediksi risiko diabetes pada pasien. "
+    "Silakan masukkan data medis pasien pada panel di sebelah kiri untuk melihat hasil prediksi."
 )
 
-# Menampilkan informasi model jika berhasil dimuat
-if model:
+# Menampilkan metrik performa model jika berhasil dimuat
+if metrics is not None:
+    st.subheader("Performa Model yang Digunakan")
     st.info(
-        "Model terbaik yang digunakan: **LightGBM** dengan fitur hasil seleksi **RFE**."
+        f"Model terbaik ({metrics['model']} dengan seleksi fitur {metrics['feature_set']}) dipilih berdasarkan F1-Score tertinggi."
     )
+    
+    # Menampilkan metrik dalam kolom yang rapi
+    col1, col2, col3, col4, col5 = st.columns(5)
+    col1.metric("Akurasi", f"{metrics['accuracy']:.2%}")
+    col2.metric("Presisi", f"{metrics['precision']:.2%}")
+    col3.metric("Recall", f"{metrics['recall']:.2%}")
+    col4.metric("F1-Score", f"{metrics['f1']:.4f}")
+    col5.metric("AUC", f"{metrics.get('roc_auc', 0):.4f}") # Gunakan .get untuk kompatibilitas
 
-# Form input data pasien di sidebar
+# Sidebar untuk input data
 with st.sidebar:
-    st.header("Input Data Pasien")
+    st.header("Parameter Input Pasien")
+    st.write("Masukkan nilai untuk setiap parameter di bawah ini.")
     
-    # Berdasarkan fitur yang dipilih oleh RFE di main.py:
-    # ['Glucose', 'BloodPressure', 'BMI', 'DiabetesPedigreeFunction', 'Age']
-    # Kita perlu semua fitur original untuk proses scaling
-    
-    pregnancies = st.number_input("Jumlah Kehamilan (Pregnancies)", min_value=0, max_value=20, value=3, step=1)
-    glucose = st.number_input("Kadar Glukosa (Glucose)", min_value=0, max_value=200, value=120, help="Konsentrasi glukosa plasma 2 jam dalam tes toleransi glukosa oral.")
-    blood_pressure = st.number_input("Tekanan Darah (BloodPressure)", min_value=0, max_value=122, value=70, help="Tekanan darah diastolik (mm Hg).")
-    skin_thickness = st.number_input("Ketebalan Kulit (SkinThickness)", min_value=0, max_value=99, value=20, help="Ketebalan lipatan kulit trisep (mm).")
-    insulin = st.number_input("Kadar Insulin", min_value=0, max_value=846, value=80, help="Insulin serum 2 jam (mu U/ml).")
-    bmi = st.number_input("Indeks Massa Tubuh (BMI)", min_value=0.0, max_value=67.1, value=32.0, format="%.1f", help="Berat badan dalam kg/(tinggi badan dalam m)^2.")
-    dpf = st.number_input("Fungsi Silsilah Diabetes (DiabetesPedigreeFunction)", min_value=0.0, max_value=2.5, value=0.47, format="%.3f", help="Fungsi yang menilai kemungkinan diabetes berdasarkan riwayat keluarga.")
-    age = st.number_input("Usia (Age)", min_value=21, max_value=85, value=33)
+    pregnancies = st.number_input("Jumlah Kehamilan (Pregnancies)", min_value=0, max_value=20, value=3, step=1, help="Jumlah total kehamilan.")
+    glucose = st.number_input("Kadar Glukosa Plasma (Glucose)", min_value=0, max_value=250, value=120, help="Konsentrasi glukosa plasma 2 jam setelah OGTT. Normal: < 140 mg/dL.")
+    blood_pressure = st.number_input("Tekanan Darah Diastolik (BloodPressure)", min_value=0, max_value=130, value=70, help="Tekanan darah diastolik (mm Hg). Normal: < 80 mm Hg.")
+    skin_thickness = st.number_input("Ketebalan Lipatan Kulit (SkinThickness)", min_value=0, max_value=100, value=20, help="Ketebalan lipatan kulit trisep (mm). Indikator lemak tubuh.")
+    insulin = st.number_input("Kadar Insulin Serum (Insulin)", min_value=0, max_value=900, value=80, help="Kadar insulin serum 2 jam setelah OGTT (mu U/ml). Normal: < 100 mu U/ml.")
+    bmi = st.number_input("Indeks Massa Tubuh (BMI)", min_value=0.0, max_value=70.0, value=32.0, format="%.1f", help="BMI (kg/m²). Normal: 18.5-24.9. Obesitas: > 30.")
+    dpf = st.number_input("Fungsi Silsilah Diabetes (DPF)", min_value=0.0, max_value=2.5, value=0.47, format="%.3f", help="Skor risiko diabetes berdasarkan riwayat keluarga.")
+    age = st.number_input("Usia (Age)", min_value=18, max_value=100, value=33, help="Usia pasien dalam tahun.")
 
-# Tombol untuk melakukan prediksi
-predict_button = st.button("Prediksi Risiko Diabetes", type="primary")
+# Tombol prediksi utama
+predict_button = st.button("Prediksi Risiko", type="primary", use_container_width=True)
 
-# Proses prediksi ketika tombol ditekan
-if model and scaler and predict_button:
-    # Mengumpulkan semua fitur input ke dalam DataFrame, karena scaler dilatih pada semua fitur
-    feature_names = [
-        'Pregnancies', 'Glucose', 'BloodPressure', 'SkinThickness', 
-        'Insulin', 'BMI', 'DiabetesPedigreeFunction', 'Age'
-    ]
-    
-    input_data = pd.DataFrame([[
-        pregnancies, glucose, blood_pressure, skin_thickness, 
-        insulin, bmi, dpf, age
-    ]], columns=feature_names)
+# Proses prediksi
+if all(v is not None for v in [model, scaler, explainer, metrics]) and predict_button:
+    st.header("Hasil Analisis Risiko Diabetes")
 
-    # Scaling semua fitur
+    feature_names_original = ['Pregnancies', 'Glucose', 'BloodPressure', 'SkinThickness', 'Insulin', 'BMI', 'DiabetesPedigreeFunction', 'Age']
+    input_data = pd.DataFrame([[pregnancies, glucose, blood_pressure, skin_thickness, insulin, bmi, dpf, age]], columns=feature_names_original)
+
     input_data_scaled = scaler.transform(input_data)
     
-    # Memilih hanya fitur yang digunakan oleh model RFE
-    # Indeks RFE: [1, 2, 5, 6, 7] -> Glucose, BloodPressure, BMI, DiabetesPedigreeFunction, Age
-    rfe_feature_indices = [1, 2, 5, 6, 7]
+    rfe_feature_names = ['Glucose', 'BloodPressure', 'BMI', 'DiabetesPedigreeFunction', 'Age']
+    rfe_feature_indices = [feature_names_original.index(f) for f in rfe_feature_names]
     final_input = input_data_scaled[:, rfe_feature_indices]
 
-    # Melakukan prediksi
     try:
         prediction = model.predict(final_input)
         prediction_proba = model.predict_proba(final_input)
 
-        st.divider()
-        st.header("Hasil Prediksi")
+        col1, col2 = st.columns(2)
+        with col1:
+            if prediction[0] == 1:
+                st.warning("**Status: Pasien Berisiko Tinggi Terkena Diabetes**")
+            else:
+                st.success("**Status: Pasien Berisiko Rendah Terkena Diabetes**")
+        
+        with col2:
+            st.metric(label="Probabilitas Risiko Diabetes", value=f"{prediction_proba[0][1]*100:.2f}%")
 
-        # Menampilkan hasil
-        if prediction[0] == 1:
-            st.warning(f"**Pasien Berisiko Terkena Diabetes** (Probabilitas: {prediction_proba[0][1]*100:.2f}%)")
-            st.write("Disarankan untuk melakukan konsultasi lebih lanjut dengan dokter untuk pemeriksaan dan penanganan.")
-        else:
-            st.success(f"**Pasien Tidak Berisiko Terkena Diabetes** (Probabilitas: {prediction_proba[0][0]*100:.2f}%)")
-            st.write("Tetap pertahankan gaya hidup sehat untuk pencegahan.")
+        st.subheader("Faktor-Faktor yang Mempengaruhi Prediksi (Analisis SHAP)")
+
+        shap_df = pd.DataFrame(final_input, columns=rfe_feature_names)
+        shap_values = explainer.shap_values(shap_df)
+        
+        st.write("Plot di bawah ini menunjukkan bagaimana setiap fitur 'mendorong' prediksi dari nilai dasar (rata-rata prediksi model) ke hasil akhir. Fitur berwarna merah meningkatkan risiko, sedangkan yang biru menurunkannya.")
+        
+        st_shap(shap.force_plot(explainer.expected_value[1], shap_values[1], shap_df, matplotlib=False), height=150)
+
+        shap_values_instance = shap_values[1][0]
+        feature_impact = sorted(zip(rfe_feature_names, shap_values_instance), key=lambda x: abs(x[1]), reverse=True)
+        
+        st.write("#### Ringkasan Faktor Kunci:")
+        for feature, impact in feature_impact[:3]:
+            if impact > 0:
+                st.markdown(f"- **{feature}**: Nilai yang dimasukkan secara signifikan **meningkatkan** risiko.")
+            else:
+                st.markdown(f"- **{feature}**: Nilai yang dimasukkan secara signifikan **menurunkan** risiko.")
             
     except Exception as e:
-        st.error(f"Terjadi kesalahan saat melakukan prediksi: {e}")
+        st.error(f"Terjadi kesalahan saat melakukan analisis: {e}")
 
-# Footer
+# Disclaimer
 st.markdown("---")
-st.write("Dibuat dengan Streamlit | Model ML oleh Pengguna")
+st.warning(
+    "**Disclaimer:** Aplikasi ini adalah alat bantu dan tidak menggantikan konsultasi medis profesional. "
+    "Hasil prediksi tidak boleh digunakan sebagai diagnosis tunggal. Selalu konsultasikan dengan dokter."
+)

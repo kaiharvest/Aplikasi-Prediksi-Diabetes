@@ -269,18 +269,20 @@ def train_and_evaluate_models(X_train, X_test, y_train, y_test, feature_names, v
         t0 = time.time()
         model.fit(X_train, y_train)
         preds = model.predict(X_test)
+        preds_proba = model.predict_proba(X_test)[:, 1]
         t1 = time.time()
         res = {
             "accuracy": accuracy_score(y_test, preds),
             "precision": precision_score(y_test, preds, zero_division=0),
             "recall": recall_score(y_test, preds, zero_division=0),
             "f1": f1_score(y_test, preds, zero_division=0),
+            "roc_auc": roc_auc_score(y_test, preds_proba),
             "time": t1 - t0,
             "model": model
         }
         results[name] = res
         if verbose:
-            print(f"{name}: acc={res['accuracy']:.4f} f1={res['f1']:.4f} time={res['time']:.3f}s")
+            print(f"{name}: acc={res['accuracy']:.4f} f1={res['f1']:.4f} auc={res['roc_auc']:.4f} time={res['time']:.3f}s")
     return results
 
 # -------------------------
