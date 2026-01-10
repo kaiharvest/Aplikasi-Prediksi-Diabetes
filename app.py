@@ -26,7 +26,7 @@ def load_assets():
             "Satu atau lebih file aset (`best_model.pkl`, `scaler.pkl`, `summary_results.csv`) tidak ditemukan. "
             "Harap jalankan `main.py` terlebih dahulu untuk menghasilkan file-file ini."
         )
-        return None, None, None, None
+        return None, None, None, None, None
 
     model = joblib.load(model_path)
     scaler = joblib.load(scaler_path)
@@ -36,10 +36,31 @@ def load_assets():
     results_df = pd.read_csv(results_path)
     best_model_metrics = results_df.loc[results_df['f1'].idxmax()]
     
-    return model, scaler, explainer, best_model_metrics
+    # Mendapatkan nama fitur yang digunakan oleh model terbaik
+    feature_set_name = best_model_metrics['feature_set']
+    
+    # Daftar fitur asli
+    feature_names_original = ['Pregnancies', 'Glucose', 'BloodPressure', 'SkinThickness', 'Insulin', 'BMI', 'DiabetesPedigreeFunction', 'Age']
+    
+    # Mendefinisikan set fitur (ini harus konsisten dengan `main.py`)
+    # Ini adalah pendekatan yang disederhanakan. Idealnya, file `main.py` akan menyimpan indeks ini.
+    selection_sets = {
+        "All": list(range(len(feature_names_original))),
+        "RFE": [1, 2, 5, 6, 7],
+        "Boruta": [0, 1, 5, 6, 7],
+        "GA": [1, 2, 4, 5, 6, 7],
+        "PSO": [0, 1, 2, 4, 5, 7],
+        "GWO": [0, 1, 2, 4, 5, 7],
+        "TopSHAP5": [1, 0, 5, 7, 6] 
+    }
+    
+    best_feature_indices = selection_sets.get(feature_set_name, list(range(len(feature_names_original))))
+    best_feature_names = [feature_names_original[i] for i in best_feature_indices]
+
+    return model, scaler, explainer, best_model_metrics, (best_feature_indices, best_feature_names)
 
 # Memuat aset
-model, scaler, explainer, metrics = load_assets()
+model, scaler, explainer, metrics, best_features = load_assets()
 
 # Konfigurasi halaman dan judul
 st.set_page_config(page_title="Prediksi Risiko Diabetes", layout="wide")
@@ -56,13 +77,12 @@ if metrics is not None:
         f"Model terbaik ({metrics['model']} dengan seleksi fitur {metrics['feature_set']}) dipilih berdasarkan F1-Score tertinggi."
     )
     
-    # Menampilkan metrik dalam kolom yang rapi
     col1, col2, col3, col4, col5 = st.columns(5)
     col1.metric("Akurasi", f"{metrics['accuracy']:.2%}")
     col2.metric("Presisi", f"{metrics['precision']:.2%}")
     col3.metric("Recall", f"{metrics['recall']:.2%}")
     col4.metric("F1-Score", f"{metrics['f1']:.4f}")
-    col5.metric("AUC", f"{metrics.get('roc_auc', 0):.4f}") # Gunakan .get untuk kompatibilitas
+    col5.metric("AUC", f"{metrics.get('roc_auc', 0.0):.4f}")
 
 # Sidebar untuk input data
 with st.sidebar:
@@ -82,7 +102,7 @@ with st.sidebar:
 predict_button = st.button("Prediksi Risiko", type="primary", use_container_width=True)
 
 # Proses prediksi
-if all(v is not None for v in [model, scaler, explainer, metrics]) and predict_button:
+if all(v is not None for v in [model, scaler, explainer, metrics, best_features]) and predict_button:
     st.header("Hasil Analisis Risiko Diabetes")
 
     feature_names_original = ['Pregnancies', 'Glucose', 'BloodPressure', 'SkinThickness', 'Insulin', 'BMI', 'DiabetesPedigreeFunction', 'Age']
@@ -90,9 +110,8 @@ if all(v is not None for v in [model, scaler, explainer, metrics]) and predict_b
 
     input_data_scaled = scaler.transform(input_data)
     
-    rfe_feature_names = ['Glucose', 'BloodPressure', 'BMI', 'DiabetesPedigreeFunction', 'Age']
-    rfe_feature_indices = [feature_names_original.index(f) for f in rfe_feature_names]
-    final_input = input_data_scaled[:, rfe_feature_indices]
+    best_feature_indices, best_feature_names = best_features
+    final_input = input_data_scaled[:, best_feature_indices]
 
     try:
         prediction = model.predict(final_input)
@@ -110,15 +129,24 @@ if all(v is not None for v in [model, scaler, explainer, metrics]) and predict_b
 
         st.subheader("Faktor-Faktor yang Mempengaruhi Prediksi (Analisis SHAP)")
 
-        shap_df = pd.DataFrame(final_input, columns=rfe_feature_names)
+        shap_df = pd.DataFrame(final_input, columns=best_feature_names)
         shap_values = explainer.shap_values(shap_df)
         
         st.write("Plot di bawah ini menunjukkan bagaimana setiap fitur 'mendorong' prediksi dari nilai dasar (rata-rata prediksi model) ke hasil akhir. Fitur berwarna merah meningkatkan risiko, sedangkan yang biru menurunkannya.")
         
-        st_shap(shap.force_plot(explainer.expected_value[1], shap_values[1], shap_df, matplotlib=False), height=150)
+        # Karena explainer.expected_value bisa menjadi float atau array, kita tangani keduanya
+        base_value = explainer.expected_value
+        if isinstance(base_value, np.ndarray):
+            base_value = base_value[1]
+            
+        shap_values_to_plot = shap_values
+        if isinstance(shap_values, list):
+            shap_values_to_plot = shap_values[1]
 
-        shap_values_instance = shap_values[1][0]
-        feature_impact = sorted(zip(rfe_feature_names, shap_values_instance), key=lambda x: abs(x[1]), reverse=True)
+        st_shap(shap.force_plot(base_value, shap_values_to_plot, shap_df, matplotlib=False), height=150)
+
+        shap_values_instance = shap_values_to_plot[0]
+        feature_impact = sorted(zip(best_feature_names, shap_values_instance), key=lambda x: abs(x[1]), reverse=True)
         
         st.write("#### Ringkasan Faktor Kunci:")
         for feature, impact in feature_impact[:3]:
