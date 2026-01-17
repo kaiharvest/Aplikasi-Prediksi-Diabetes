@@ -132,7 +132,7 @@ if all(v is not None for v in [model, scaler, explainer, metrics, best_features]
         shap_df = pd.DataFrame(final_input, columns=best_feature_names)
         shap_values = explainer.shap_values(shap_df)
 
-        st.write("Plot di bawah ini menunjukkan bagaimana setiap fitur 'mendorong' prediksi dari nilai dasar (rata-rata prediksi model) ke hasil akhir. Fitur berwarna merah meningkatkan risiko, sedangkan yang biru menurunkannya.")
+        st.write("Visualisasi di bawah ini menunjukkan seberapa besar pengaruh masing-masing parameter klinis terhadap prediksi risiko diabetes pasien. Parameter berwarna merah menambah risiko, sedangkan yang biru mengurangi risiko.")
 
         # Logika robust untuk menangani berbagai struktur output dari SHAP explainer.
         base_value = explainer.expected_value
@@ -177,13 +177,13 @@ if all(v is not None for v in [model, scaler, explainer, metrics, best_features]
         try:
             st_shap(shap.force_plot(base_value_final, shap_values_instance, shap_df.iloc[0], matplotlib=False), height=150)
         except Exception as plot_error:
-            st.warning(f"Gambar SHAP tidak dapat ditampilkan: {plot_error}")
+            st.warning(f"Gambar visualisasi tidak dapat ditampilkan: {plot_error}")
 
         # Urutkan berdasarkan nilai absolut (dampak terbesar terhadap prediksi)
         feature_impact = sorted(zip(best_feature_names, shap_values_instance), key=lambda x: abs(x[1]), reverse=True)
 
         # Tampilkan analisis faktor-faktor penting
-        st.write("#### Analisis Faktor-Faktor Penting:")
+        st.write("#### Interpretasi Klinis Faktor-Faktor Utama:")
 
         # Kelompokkan fitur berdasarkan dampaknya
         increasing_factors = [(f, v) for f, v in feature_impact if v > 0]
@@ -191,7 +191,7 @@ if all(v is not None for v in [model, scaler, explainer, metrics, best_features]
 
         # Tampilkan faktor yang meningkatkan risiko
         if increasing_factors:
-            st.write("**Faktor yang Meningkatkan Risiko Diabetes:**")
+            st.write("**Parameter yang Meningkatkan Risiko Diabetes:**")
             for feature, impact in increasing_factors[:3]:  # Ambil 3 faktor teratas
                 # Ambil nilai input asli untuk konteks
                 original_value = input_data[feature].iloc[0]
@@ -199,76 +199,79 @@ if all(v is not None for v in [model, scaler, explainer, metrics, best_features]
                 # Penjelasan berdasarkan nilai SHAP dan konteks medis
                 if feature == "Glucose":
                     if original_value > 140:
-                        explanation = f"Nilai kadar glukosa ({original_value} mg/dL) Anda jauh di atas ambang normal (< 140 mg/dL), yang secara signifikan meningkatkan risiko diabetes."
+                        explanation = f"Kadar glukosa darah pasien ({original_value} mg/dL) sangat tinggi, jauh di atas ambang batas normal (< 140 mg/dL setelah uji toleransi glukosa oral), yang merupakan indikator kuat diabetes mellitus."
                     elif original_value > 120:
-                        explanation = f"Nilai kadar glukosa ({original_value} mg/dL) Anda di atas ambang pra-diabetes, berkontribusi pada peningkatan risiko."
+                        explanation = f"Kadar glukosa darah pasien ({original_value} mg/dL) berada dalam kategori pra-diabetes, menunjukkan gangguan toleransi glukosa yang meningkatkan risiko berkembangnya diabetes."
                     else:
-                        explanation = f"Meskipun kadar glukosa ({original_value} mg/dL) Anda dalam rentang normal, tetap berkontribusi pada peningkatan risiko dalam konteks kombinasi faktor lain."
+                        explanation = f"Meskipun kadar glukosa darah pasien ({original_value} mg/dL) dalam rentang normal, parameter ini tetap berkontribusi terhadap peningkatan risiko dalam konteks kombinasi faktor lain."
                 elif feature == "BMI":
                     if original_value > 30:
-                        explanation = f"Nilai BMI ({original_value}) Anda menunjukkan obesitas, yang merupakan faktor risiko utama untuk diabetes tipe 2."
+                        explanation = f"Indeks Massa Tubuh (BMI) pasien ({original_value}) menunjukkan obesitas (BMI ≥ 30), yang merupakan faktor risiko utama diabetes tipe 2 karena meningkatkan resistensi insulin."
                     elif original_value > 25:
-                        explanation = f"Nilai BMI ({original_value}) Anda menunjukkan overweight, yang meningkatkan risiko diabetes."
+                        explanation = f"BMI pasien ({original_value}) menunjukkan overweight (25 ≤ BMI < 30), yang meningkatkan risiko diabetes tipe 2 meskipun tidak sebesar obesitas."
                     else:
-                        explanation = f"Meskipun BMI ({original_value}) Anda dalam rentang normal, tetap berkontribusi pada peningkatan risiko dalam konteks kombinasi faktor lain."
+                        explanation = f"Meskipun BMI pasien ({original_value}) dalam rentang normal, parameter ini tetap berkontribusi terhadap peningkatan risiko dalam konteks kombinasi faktor lain."
                 elif feature == "Age":
                     if original_value > 45:
-                        explanation = f"Usia ({original_value} tahun) merupakan faktor risiko karena risiko diabetes meningkat seiring bertambahnya usia, terutama setelah 45 tahun."
+                        explanation = f"Usia pasien ({original_value} tahun) merupakan faktor risiko karena sensitivitas insulin cenderung menurun seiring bertambahnya usia, terutama setelah usia 45 tahun."
                     else:
-                        explanation = f"Meskipun usia ({original_value} tahun) bukan faktor risiko tinggi, tetap berkontribusi dalam kombinasi dengan faktor lain."
+                        explanation = f"Meskipun usia pasien ({original_value} tahun) bukan faktor risiko tinggi secara mandiri, parameter ini tetap berkontribusi dalam kombinasi dengan faktor lain."
                 elif feature == "Pregnancies":
-                    explanation = f"Jumlah kehamilan ({int(original_value)}) dapat meningkatkan risiko diabetes, terutama jika disertai resistensi insulin."
+                    explanation = f"Jumlah kehamilan ({int(original_value)}) dapat meningkatkan risiko diabetes, terutama jika pasien memiliki riwayat diabetes gestasional di masa lalu."
                 elif feature == "Insulin":
-                    explanation = f"Kadar insulin ({original_value} mu U/ml) yang tinggi menunjukkan resistensi insulin, yang merupakan faktor risiko utama diabetes."
+                    explanation = f"Kadar insulin ({original_value} mu U/ml) yang tinggi menunjukkan adanya resistensi insulin, kondisi awal yang umum sebelum berkembangnya diabetes tipe 2."
                 elif feature == "DiabetesPedigreeFunction":
-                    explanation = f"Nilai fungsi silsilah diabetes ({original_value}) menunjukkan riwayat genetik yang meningkatkan risiko diabetes."
+                    explanation = f"Nilai fungsi silsilah diabetes ({original_value}) menunjukkan adanya riwayat keturunan diabetes dalam keluarga, yang meningkatkan predisposisi genetik terhadap diabetes."
                 elif feature == "BloodPressure":
-                    explanation = f"Tekanan darah diastolik ({original_value} mm Hg) yang tinggi sering dikaitkan dengan sindrom metabolik dan risiko diabetes."
+                    explanation = f"Tekanan darah diastolik ({original_value} mm Hg) yang tinggi menunjukkan hipertensi, yang sering berkaitan dengan sindrom metabolik dan resistensi insulin."
                 elif feature == "SkinThickness":
-                    explanation = f"Ketebalan lipatan kulit ({original_value} mm) yang tinggi menunjukkan persentase lemak tubuh yang lebih tinggi, yang berkaitan dengan resistensi insulin."
+                    explanation = f"Ketebalan lipatan kulit triceps ({original_value} mm) yang tinggi menunjukkan persentase lemak tubuh yang lebih tinggi, yang berkaitan dengan resistensi insulin."
                 else:
                     explanation = f"Nilai {feature} ({original_value}) berkontribusi pada peningkatan risiko diabetes dalam kombinasi dengan faktor-faktor lain."
 
-                st.markdown(f"- **{feature}**: Dampak SHAP = {impact:+.3f}")
+                st.markdown(f"- **{feature}**: Meningkatkan risiko sebesar {abs(impact):.3f}")
                 st.caption(explanation)
 
         # Tampilkan faktor yang menurunkan risiko
         if decreasing_factors:
-            st.write("**Faktor yang Menurunkan Risiko Diabetes:**")
+            st.write("**Parameter yang Mengurangi Risiko Diabetes:**")
             for feature, impact in decreasing_factors[:3]:  # Ambil 3 faktor teratas
                 original_value = input_data[feature].iloc[0]
 
                 # Penjelasan berdasarkan nilai SHAP dan konteks medis
                 if feature == "Glucose":
-                    explanation = f"Kadar glukosa ({original_value} mg/dL) Anda dalam rentang normal, yang membantu menurunkan risiko diabetes."
+                    explanation = f"Kadar glukosa darah ({original_value} mg/dL) pasien dalam rentang normal, yang menunjukkan toleransi glukosa yang baik dan mengurangi risiko diabetes."
                 elif feature == "BMI":
-                    explanation = f"BMI ({original_value}) Anda dalam rentang sehat, yang menurunkan risiko diabetes."
+                    explanation = f"BMI ({original_value}) pasien dalam rentang sehat (18.5-24.9), yang menunjukkan berat badan ideal dan mengurangi risiko resistensi insulin."
                 elif feature == "Age":
-                    explanation = f"Usia muda ({original_value} tahun) merupakan faktor protektif terhadap diabetes."
+                    explanation = f"Usia muda ({original_value} tahun) merupakan faktor protektif karena sensitivitas insulin biasanya lebih baik pada usia muda."
                 elif feature == "Pregnancies":
-                    explanation = f"Jumlah kehamilan ({int(original_value)}) relatif rendah, yang menurunkan risiko diabetes terkait kehamilan."
+                    explanation = f"Jumlah kehamilan ({int(original_value)}) relatif rendah, yang mengurangi kemungkinan riwayat diabetes gestasional."
                 elif feature == "Insulin":
-                    explanation = f"Kadar insulin ({original_value} mu U/ml) Anda dalam rentang normal, menunjukkan sensitivitas insulin yang baik."
+                    explanation = f"Kadar insulin ({original_value} mu U/ml) pasien dalam rentang normal, menunjukkan sensitivitas insulin yang baik dan fungsi pankreas yang sehat."
                 elif feature == "DiabetesPedigreeFunction":
-                    explanation = f"Nilai fungsi silsilah diabetes ({original_value}) relatif rendah, menunjukkan riwayat genetik yang kurang berisiko."
+                    explanation = f"Nilai fungsi silsilah diabetes ({original_value}) relatif rendah, menunjukkan riwayat keluarga yang minim terhadap diabetes."
                 elif feature == "BloodPressure":
-                    explanation = f"Tekanan darah diastolik ({original_value} mm Hg) Anda dalam rentang normal, yang menurunkan risiko diabetes."
+                    explanation = f"Tekanan darah diastolik ({original_value} mm Hg) pasien dalam rentang normal, yang menunjukkan tidak adanya hipertensi sebagai faktor risiko tambahan."
                 elif feature == "SkinThickness":
-                    explanation = f"Ketebalan lipatan kulit ({original_value} mm) yang rendah menunjukkan persentase lemak tubuh yang sehat."
+                    explanation = f"Ketebalan lipatan kulit ({original_value} mm) yang rendah menunjukkan persentase lemak tubuh yang sehat, mengurangi risiko resistensi insulin."
                 else:
                     explanation = f"Nilai {feature} ({original_value}) berkontribusi pada penurunan risiko diabetes dalam kombinasi dengan faktor lain."
 
-                st.markdown(f"- **{feature}**: Dampak SHAP = {impact:+.3f}")
+                st.markdown(f"- **{feature}**: Mengurangi risiko sebesar {abs(impact):.3f}")
                 st.caption(explanation)
 
-        # Tampilkan ringkasan
-        st.write("#### Ringkasan Faktor Kunci:")
+        # Tampilkan ringkasan klinis
+        st.write("#### Ringkasan Klinis:")
+        st.write("Berikut adalah tiga parameter yang paling berpengaruh terhadap prediksi risiko diabetes pasien:")
         for feature, impact in feature_impact[:3]:
             original_value = input_data[feature].iloc[0]
             if impact > 0:
-                st.markdown(f"- **{feature}** (Nilai: {original_value}): Meningkatkan risiko sebesar {abs(impact):.3f}")
+                st.markdown(f"- **{feature}** (Nilai: {original_value}): Meningkatkan risiko sebesar {abs(impact):.3f} satuan")
             else:
-                st.markdown(f"- **{feature}** (Nilai: {original_value}): Menurunkan risiko sebesar {abs(impact):.3f}")
+                st.markdown(f"- **{feature}** (Nilai: {original_value}): Mengurangi risiko sebesar {abs(impact):.3f} satuan")
+
+        st.info("Catatan: Nilai SHAP menunjukkan seberapa besar masing-masing parameter menyimpang dari rata-rata populasi dalam mempengaruhi prediksi risiko diabetes.")
             
     except Exception as e:
         st.error(f"Terjadi kesalahan saat melakukan analisis: {e}")
