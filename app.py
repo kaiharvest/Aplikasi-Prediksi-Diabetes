@@ -131,29 +131,144 @@ if all(v is not None for v in [model, scaler, explainer, metrics, best_features]
 
         shap_df = pd.DataFrame(final_input, columns=best_feature_names)
         shap_values = explainer.shap_values(shap_df)
-        
+
         st.write("Plot di bawah ini menunjukkan bagaimana setiap fitur 'mendorong' prediksi dari nilai dasar (rata-rata prediksi model) ke hasil akhir. Fitur berwarna merah meningkatkan risiko, sedangkan yang biru menurunkannya.")
-        
-        # Karena explainer.expected_value bisa menjadi float atau array, kita tangani keduanya
+
+        # Logika robust untuk menangani berbagai struktur output dari SHAP explainer.
         base_value = explainer.expected_value
-        if isinstance(base_value, np.ndarray):
-            base_value = base_value[1]
-            
-        shap_values_to_plot = shap_values
-        if isinstance(shap_values, list):
-            shap_values_to_plot = shap_values[1]
+        shap_values_raw = shap_values
 
-        st_shap(shap.force_plot(base_value, shap_values_to_plot, shap_df, matplotlib=False), height=150)
+        # Tangani berbagai format output SHAP
+        # Berdasarkan tes sebelumnya, untuk model klasifikasi biner,
+        # SHAP bisa mengembalikan array 3D dengan bentuk (n_samples, n_features, n_classes)
+        if isinstance(shap_values_raw, list):
+            # Jika output berupa list (multi-class), ambil untuk kelas positif (indeks 1)
+            shap_values_for_class = shap_values_raw[1] if len(shap_values_raw) > 1 else shap_values_raw[0]
+        else:
+            # Jika output bukan list, cek bentuk array
+            if len(shap_values_raw.shape) == 3:
+                # Array 3D: (n_samples, n_features, n_classes)
+                # Ambil semua fitur untuk kelas positif (indeks 1) dari semua sampel
+                # Lalu ambil hanya instance pertama
+                shap_values_for_class = shap_values_raw[:, :, 1]  # Ambil kelas positif
+            elif len(shap_values_raw.shape) == 2 and shap_values_raw.shape[1] == 2:
+                # Array 2D dengan 2 kolom (satu untuk tiap kelas), ambil kelas positif
+                shap_values_for_class = shap_values_raw[:, 1]
 
-        shap_values_instance = shap_values_to_plot[0]
+        # Sekarang ambil hanya instance pertama untuk analisis
+        if len(shap_values_for_class.shape) == 2:
+            # Jika masih 2D, ambil instance pertama
+            shap_values_instance = shap_values_for_class[0, :]  # Ambil instance pertama
+        else:
+            # Jika sudah 1D, gunakan langsung
+            shap_values_instance = shap_values_for_class
+
+        # Tangani base_value untuk multi-class
+        if isinstance(base_value, (list, np.ndarray)) and len(base_value) > 1:
+            # Ambil base value untuk kelas positif (indeks 1)
+            base_value_final = base_value[1] if len(base_value) > 1 else base_value[0]
+        else:
+            base_value_final = base_value
+
+        if isinstance(base_value_final, np.ndarray):
+            base_value_final = base_value_final.item()
+
+        # Tampilkan force plot
+        try:
+            st_shap(shap.force_plot(base_value_final, shap_values_instance, shap_df.iloc[0], matplotlib=False), height=150)
+        except Exception as plot_error:
+            st.warning(f"Gambar SHAP tidak dapat ditampilkan: {plot_error}")
+
+        # Urutkan berdasarkan nilai absolut (dampak terbesar terhadap prediksi)
         feature_impact = sorted(zip(best_feature_names, shap_values_instance), key=lambda x: abs(x[1]), reverse=True)
-        
+
+        # Tampilkan analisis faktor-faktor penting
+        st.write("#### Analisis Faktor-Faktor Penting:")
+
+        # Kelompokkan fitur berdasarkan dampaknya
+        increasing_factors = [(f, v) for f, v in feature_impact if v > 0]
+        decreasing_factors = [(f, v) for f, v in feature_impact if v < 0]
+
+        # Tampilkan faktor yang meningkatkan risiko
+        if increasing_factors:
+            st.write("**Faktor yang Meningkatkan Risiko Diabetes:**")
+            for feature, impact in increasing_factors[:3]:  # Ambil 3 faktor teratas
+                # Ambil nilai input asli untuk konteks
+                original_value = input_data[feature].iloc[0]
+
+                # Penjelasan berdasarkan nilai SHAP dan konteks medis
+                if feature == "Glucose":
+                    if original_value > 140:
+                        explanation = f"Nilai kadar glukosa ({original_value} mg/dL) Anda jauh di atas ambang normal (< 140 mg/dL), yang secara signifikan meningkatkan risiko diabetes."
+                    elif original_value > 120:
+                        explanation = f"Nilai kadar glukosa ({original_value} mg/dL) Anda di atas ambang pra-diabetes, berkontribusi pada peningkatan risiko."
+                    else:
+                        explanation = f"Meskipun kadar glukosa ({original_value} mg/dL) Anda dalam rentang normal, tetap berkontribusi pada peningkatan risiko dalam konteks kombinasi faktor lain."
+                elif feature == "BMI":
+                    if original_value > 30:
+                        explanation = f"Nilai BMI ({original_value}) Anda menunjukkan obesitas, yang merupakan faktor risiko utama untuk diabetes tipe 2."
+                    elif original_value > 25:
+                        explanation = f"Nilai BMI ({original_value}) Anda menunjukkan overweight, yang meningkatkan risiko diabetes."
+                    else:
+                        explanation = f"Meskipun BMI ({original_value}) Anda dalam rentang normal, tetap berkontribusi pada peningkatan risiko dalam konteks kombinasi faktor lain."
+                elif feature == "Age":
+                    if original_value > 45:
+                        explanation = f"Usia ({original_value} tahun) merupakan faktor risiko karena risiko diabetes meningkat seiring bertambahnya usia, terutama setelah 45 tahun."
+                    else:
+                        explanation = f"Meskipun usia ({original_value} tahun) bukan faktor risiko tinggi, tetap berkontribusi dalam kombinasi dengan faktor lain."
+                elif feature == "Pregnancies":
+                    explanation = f"Jumlah kehamilan ({int(original_value)}) dapat meningkatkan risiko diabetes, terutama jika disertai resistensi insulin."
+                elif feature == "Insulin":
+                    explanation = f"Kadar insulin ({original_value} mu U/ml) yang tinggi menunjukkan resistensi insulin, yang merupakan faktor risiko utama diabetes."
+                elif feature == "DiabetesPedigreeFunction":
+                    explanation = f"Nilai fungsi silsilah diabetes ({original_value}) menunjukkan riwayat genetik yang meningkatkan risiko diabetes."
+                elif feature == "BloodPressure":
+                    explanation = f"Tekanan darah diastolik ({original_value} mm Hg) yang tinggi sering dikaitkan dengan sindrom metabolik dan risiko diabetes."
+                elif feature == "SkinThickness":
+                    explanation = f"Ketebalan lipatan kulit ({original_value} mm) yang tinggi menunjukkan persentase lemak tubuh yang lebih tinggi, yang berkaitan dengan resistensi insulin."
+                else:
+                    explanation = f"Nilai {feature} ({original_value}) berkontribusi pada peningkatan risiko diabetes dalam kombinasi dengan faktor-faktor lain."
+
+                st.markdown(f"- **{feature}**: Dampak SHAP = {impact:+.3f}")
+                st.caption(explanation)
+
+        # Tampilkan faktor yang menurunkan risiko
+        if decreasing_factors:
+            st.write("**Faktor yang Menurunkan Risiko Diabetes:**")
+            for feature, impact in decreasing_factors[:3]:  # Ambil 3 faktor teratas
+                original_value = input_data[feature].iloc[0]
+
+                # Penjelasan berdasarkan nilai SHAP dan konteks medis
+                if feature == "Glucose":
+                    explanation = f"Kadar glukosa ({original_value} mg/dL) Anda dalam rentang normal, yang membantu menurunkan risiko diabetes."
+                elif feature == "BMI":
+                    explanation = f"BMI ({original_value}) Anda dalam rentang sehat, yang menurunkan risiko diabetes."
+                elif feature == "Age":
+                    explanation = f"Usia muda ({original_value} tahun) merupakan faktor protektif terhadap diabetes."
+                elif feature == "Pregnancies":
+                    explanation = f"Jumlah kehamilan ({int(original_value)}) relatif rendah, yang menurunkan risiko diabetes terkait kehamilan."
+                elif feature == "Insulin":
+                    explanation = f"Kadar insulin ({original_value} mu U/ml) Anda dalam rentang normal, menunjukkan sensitivitas insulin yang baik."
+                elif feature == "DiabetesPedigreeFunction":
+                    explanation = f"Nilai fungsi silsilah diabetes ({original_value}) relatif rendah, menunjukkan riwayat genetik yang kurang berisiko."
+                elif feature == "BloodPressure":
+                    explanation = f"Tekanan darah diastolik ({original_value} mm Hg) Anda dalam rentang normal, yang menurunkan risiko diabetes."
+                elif feature == "SkinThickness":
+                    explanation = f"Ketebalan lipatan kulit ({original_value} mm) yang rendah menunjukkan persentase lemak tubuh yang sehat."
+                else:
+                    explanation = f"Nilai {feature} ({original_value}) berkontribusi pada penurunan risiko diabetes dalam kombinasi dengan faktor lain."
+
+                st.markdown(f"- **{feature}**: Dampak SHAP = {impact:+.3f}")
+                st.caption(explanation)
+
+        # Tampilkan ringkasan
         st.write("#### Ringkasan Faktor Kunci:")
         for feature, impact in feature_impact[:3]:
+            original_value = input_data[feature].iloc[0]
             if impact > 0:
-                st.markdown(f"- **{feature}**: Nilai yang dimasukkan secara signifikan **meningkatkan** risiko.")
+                st.markdown(f"- **{feature}** (Nilai: {original_value}): Meningkatkan risiko sebesar {abs(impact):.3f}")
             else:
-                st.markdown(f"- **{feature}**: Nilai yang dimasukkan secara signifikan **menurunkan** risiko.")
+                st.markdown(f"- **{feature}** (Nilai: {original_value}): Menurunkan risiko sebesar {abs(impact):.3f}")
             
     except Exception as e:
         st.error(f"Terjadi kesalahan saat melakukan analisis: {e}")
