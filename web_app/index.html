@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Aplikasi Prediksi Risiko Diabetes</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <!-- Bootstrap CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Chart.js untuk visualisasi -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+    <div class="container-fluid">
+        <header class="text-center py-4">
+            <h1 class="display-4">Aplikasi Prediksi Risiko Diabetes</h1>
+            <p class="lead">Gunakan machine learning untuk memprediksi risiko diabetes berdasarkan parameter medis</p>
+        </header>
+
+        <div class="row">
+            <!-- Kolom Input dan Hasil -->
+            <div class="col-md-8">
+                <div class="card shadow-sm">
+                    <div class="card-header bg-primary text-white">
+                        <h5 class="mb-0">Parameter Input Pasien</h5>
+                    </div>
+                    <div class="card-body">
+                        <form id="predictionForm">
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <div class="mb-3">
+                                        <label for="gender" class="form-label">Jenis Kelamin</label>
+                                        <select class="form-select" id="gender">
+                                            <option value="male">Laki-laki</option>
+                                            <option value="female" selected>Perempuan</option>
+                                        </select>
+                                        <div class="form-text">Pilih jenis kelamin pasien</div>
+                                    </div>
+                                    <div class="mb-3" id="pregnanciesGroup">
+                                        <label for="pregnancies" class="form-label">Jumlah Kehamilan</label>
+                                        <input type="number" class="form-control" id="pregnancies" min="0" max="30" value="3">
+                                        <div class="form-text">Jumlah total kehamilan</div>
+                                    </div>
+
+                                    <div class="mb-3">
+                                        <label for="glucose" class="form-label">Kadar Glukosa Plasma (mg/dL)</label>
+                                        <input type="number" class="form-control" id="glucose" min="0" max="400" value="120">
+                                        <div class="form-text">Konsentrasi glukosa plasma 2 jam setelah OGTT. Normal: < 140 mg/dL</div>
+                                    </div>
+
+                                    <div class="mb-3">
+                                        <label for="bloodPressure" class="form-label">Tekanan Darah Diastolik (mm Hg)</label>
+                                        <input type="number" class="form-control" id="bloodPressure" min="0" max="200" value="70">
+                                        <div class="form-text">Tekanan darah diastolik. Normal: < 80 mm Hg</div>
+                                    </div>
+
+                                    <div class="mb-3">
+                                        <label for="skinThickness" class="form-label">Ketebalan Lipatan Kulit (mm)</label>
+                                        <input type="number" class="form-control" id="skinThickness" min="0" max="150" value="20">
+                                        <div class="form-text">Ketebalan lipatan kulit trisep. Indikator lemak tubuh</div>
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <div class="mb-3">
+                                        <label for="insulin" class="form-label">Kadar Insulin Serum (mu U/ml)</label>
+                                        <input type="number" class="form-control" id="insulin" min="0" max="1000" value="80">
+                                        <div class="form-text">Kadar insulin serum 2 jam setelah OGTT. Normal: < 100 mu U/ml</div>
+                                    </div>
+
+                                    <div class="mb-3">
+                                        <label for="bmi" class="form-label">Indeks Massa Tubuh (BMI)</label>
+                                        <input type="number" class="form-control" id="bmi" min="0" max="100" step="0.1" value="32.0">
+                                        <div class="form-text">BMI (kg/m²). Normal: 18.5-24.9. Obesitas: > 30</div>
+                                    </div>
+
+                                    <div class="mb-3">
+                                        <label for="dpf" class="form-label">Fungsi Silsilah Diabetes</label>
+                                        <input type="number" class="form-control" id="dpf" min="0" max="5" step="0.001" value="0.470">
+                                        <div class="form-text">Skor risiko diabetes berdasarkan riwayat keluarga</div>
+                                    </div>
+
+                                    <div class="mb-3">
+                                        <label for="age" class="form-label">Usia (tahun)</label>
+                                        <input type="number" class="form-control" id="age" min="0" max="200" value="33">
+                                        <div class="form-text">Usia pasien dalam tahun</div>
+                                    </div>
+
+                                    <button type="submit" class="btn btn-primary w-100" id="predictBtn">
+                                        <span id="btnText">Prediksi Risiko</span>
+                                        <div id="spinner" class="spinner-border spinner-border-sm d-none" role="status">
+                                            <span class="visually-hidden">Loading...</span>
+                                        </div>
+                                    </button>
+                                </div>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+
+                <!-- Kolom Hasil -->
+                <div class="card shadow-sm mt-4">
+                    <div class="card-header bg-success text-white">
+                        <h5 class="mb-0">Hasil Prediksi</h5>
+                    </div>
+                    <div class="card-body">
+                        <div id="resultPlaceholder" class="text-center py-5 text-muted">
+                            <i class="fas fa-heartbeat fa-3x mb-3"></i>
+                            <p>Masukkan data pasien dan klik "Prediksi Risiko" untuk melihat hasil</p>
+                        </div>
+
+                        <div id="resultContainer" class="d-none">
+                            <div class="row mb-4">
+                                <div class="col-md-6">
+                                    <div class="card border-left-danger shadow h-100 py-2">
+                                        <div class="card-body">
+                                            <div class="row no-gutters align-items-center">
+                                                <div class="col mr-2">
+                                                    <div class="text-xs font-weight-bold text-danger text-uppercase mb-1">
+                                                        Status Risiko
+                                                    </div>
+                                                    <div class="h5 mb-0 font-weight-bold text-gray-800" id="riskStatus">-</div>
+                                                </div>
+                                                <div class="col-auto">
+                                                    <i class="fas fa-procedures fa-2x text-gray-300"></i>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="col-md-6">
+                                    <div class="card border-left-primary shadow h-100 py-2">
+                                        <div class="card-body">
+                                            <div class="row no-gutters align-items-center">
+                                                <div class="col mr-2">
+                                                    <div class="text-xs font-weight-bold text-primary text-uppercase mb-1">
+                                                        Probabilitas Risiko
+                                                    </div>
+                                                    <div class="h5 mb-0 font-weight-bold text-gray-800" id="riskProbability">0%</div>
+                                                </div>
+                                                <div class="col-auto">
+                                                    <i class="fas fa-percentage fa-2x text-gray-300"></i>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="alert alert-info mt-4" id="clinicalInfo">
+                                <h6><i class="fas fa-stethoscope"></i> Informasi Klinis:</h6>
+                                <p id="clinicalDescription">Data klinis akan muncul setelah prediksi dilakukan.</p>
+                            </div>
+
+                            <h5 class="mt-4">Analisis Diagnosa</h5>
+                            <div class="alert alert-light border shadow-sm">
+                                <h6><i class="fas fa-stethoscope"></i> Hasil Diagnosa:</h6>
+                                <p id="diagnosisResult">-</p>
+                                <h6 class="mt-3"><i class="fas fa-chart-bar"></i> Faktor-Faktor yang Mempengaruhi Prediksi:</h6>
+                                <canvas id="shapChart" width="400" height="200"></canvas>
+
+                                <div class="mt-4" id="featureImpact">
+                                    <h6>Ringkasan Faktor Terpenting:</h6>
+                                    <ul id="factorList" class="list-group">
+                                        <!-- Faktor-faktor akan ditampilkan di sini -->
+                                    </ul>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Kolom Performa Model -->
+            <div class="col-md-4">
+                <div class="card shadow-sm">
+                    <div class="card-header bg-info text-white">
+                        <h5 class="mb-0">Performa Model</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="row text-center mb-4">
+                            <div class="col-md-3 col-6 mb-3">
+                                <div class="card bg-success text-white h-100">
+                                    <div class="card-body d-flex flex-column justify-content-center">
+                                        <h6 class="card-title mb-1">Akurasi</h6>
+                                        <p class="fs-5 mb-0" id="accuracy">86.74%</p>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-3 col-6 mb-3">
+                                <div class="card bg-primary text-white h-100">
+                                    <div class="card-body d-flex flex-column justify-content-center">
+                                        <h6 class="card-title mb-1">F1-Score</h6>
+                                        <p class="fs-5 mb-0" id="f1score">0.8689</p>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-3 col-6 mb-3">
+                                <div class="card bg-warning text-dark h-100">
+                                    <div class="card-body d-flex flex-column justify-content-center">
+                                        <h6 class="card-title mb-1">Presisi</h6>
+                                        <p class="fs-5 mb-0" id="precision">85.93%</p>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-3 col-6 mb-3">
+                                <div class="card bg-info text-white h-100">
+                                    <div class="card-body d-flex flex-column justify-content-center">
+                                        <h6 class="card-title mb-1">Recall</h6>
+                                        <p class="fs-5 mb-0" id="recall">87.88%</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="row">
+                            <div class="col-12">
+                                <div class="card bg-light">
+                                    <div class="card-body">
+                                        <div class="d-flex justify-content-between align-items-center">
+                                            <div class="text-center">
+                                                <h6 class="text-muted mb-1">Model Terbaik</h6>
+                                                <p class="mb-0 fs-6 fw-bold" id="bestModelSide">RFE-RandomForest</p>
+                                            </div>
+                                            <div class="text-center">
+                                                <h6 class="text-muted mb-1">Metode Seleksi</h6>
+                                                <p class="mb-0 fs-6 fw-bold" id="methodUsed">RFE</p>
+                                            </div>
+                                            <div class="text-center">
+                                                <h6 class="text-muted mb-1">Fitur Digunakan</h6>
+                                                <p class="mb-0 fs-6 fw-bold" id="featureSet">5 dari 8</p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card shadow-sm mt-4">
+                    <div class="card-header bg-secondary text-white">
+                        <h5 class="mb-0">Perbandingan Performa</h5>
+                    </div>
+                    <div class="card-body">
+                        <table class="table table-sm">
+                            <thead>
+                                <tr>
+                                    <th>Metode</th>
+                                    <th>Akurasi</th>
+                                    <th>F1-Score</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <td>RFE</td>
+                                    <td id="rfeAccuracy">86.74%</td>
+                                    <td id="rfeF1Score">0.8689</td>
+                                </tr>
+                                <tr>
+                                    <td>Semua Fitur</td>
+                                    <td id="allFeaturesAccuracy">85.23%</td>
+                                    <td id="allFeaturesF1Score">0.8517</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                        <p class="mt-2"><small class="text-muted">(*) Berdasarkan hasil pelatihan model</small></p>
+                    </div>
+                </div>
+
+                <div class="card shadow-sm mt-4">
+                    <div class="card-header bg-secondary text-white">
+                        <h5 class="mb-0">Informasi Klinis</h5>
+                    </div>
+                    <div class="card-body">
+                        <p class="card-text">
+                            Aplikasi ini menggunakan model machine learning untuk memprediksi risiko diabetes
+                            berdasarkan parameter-parameter medis. Model terbaik yang digunakan adalah
+                            <strong>RFE-RandomForest</strong> dengan akurasi tinggi.
+                        </p>
+                        <p class="card-text">
+                            Hasil prediksi disertai dengan penjelasan faktor-faktor yang mempengaruhi
+                            keputusan model menggunakan pendekatan SHAP (SHapley Additive exPlanations).
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <footer class="mt-5 py-4 text-center text-muted border-top">
+            <p><small>
+                <strong>Disclaimer:</strong> Aplikasi ini adalah alat bantu dan tidak menggantikan konsultasi medis profesional. 
+                Hasil prediksi tidak boleh digunakan sebagai diagnosis tunggal. Selalu konsultasikan dengan dokter.
+            </small></p>
+            <p class="mb-0"><small>&copy; 2025 Aplikasi Prediksi Diabetes. Dibuat untuk tujuan edukasi.</small></p>
+        </footer>
+    </div>
+
+    <!-- Font Awesome untuk ikon -->
+    <script src="https://kit.fontawesome.com/a076d05399.js" crossorigin="anonymous"></script>
+    <!-- Bootstrap JS -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <!-- Skrip utama aplikasi -->
+    <script src="/static/js/app.js"></script>
+</body>
+</html>
